@@ -7,6 +7,10 @@ on:
     tags:
       - "v*.*.*"
 
+env:
+  DEPLOY_PACKAGE_NAME_FILE: "${{ github.sha }}.zip"
+  DEPLOY_PACKAGE_NAME: "${{ github.sha }}"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -44,13 +48,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Docker Compose
+      - name: Install dependencies
         run: |
-          docker-compose version || sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose
+          npm install -g pnpm
+          pnpm install
 
-      - name: Build Docker image
-        run: |
-          docker-compose build
+      - name: Build project
+        run: pnpm run build
+
+      - name: Create zip deployment package
+        run: zip -r ${{ env.DEPLOY_PACKAGE_NAME_FILE }} ./dist/ -x *.git*
 
   deploy:
     runs-on: ubuntu-latest
@@ -60,18 +67,49 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Docker Compose
-        run: |
-          docker-compose version || sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose
+      - name: Copy build to Lightsail
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.LIGHTSAIL_IP }}
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          source: ${{ env.DEPLOY_PACKAGE_NAME_FILE }}
+          target: "/home/${{ secrets.AWS_USER }}"
 
-      - name: Login to AWS
-        run: |
-          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws configure set default.region ${{ secrets.AWS_REGION }}
+      - name: Deploy to Lightsail
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.LIGHTSAIL_IP }}
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          script: |
+            # Créer le répertoire cible s'il n'existe pas
+            mkdir -p /home/${{ secrets.AWS_USER }}/console-app
 
-      - name: Deploy Docker container
-        run: |
-          docker save console-app | ssh -i ${{ secrets.LIGHTSAIL_SSH_KEY }} -o StrictHostKeyChecking=no ubuntu@${{ secrets.LIGHTSAIL_IP }} \
-          'docker load && (docker ps -q --filter "name=console-app" && docker stop console-app && docker rm console-app || true) && docker run -d -p 80:80 --name console-app'
+            # Extraire le contenu du package dans le dossier cible
+            unzip -q -o /home/${{ secrets.AWS_USER }}/${{ env.DEPLOY_PACKAGE_NAME_FILE }} -d /home/${{ secrets.AWS_USER }}/console-app
 
+            # Supprimer le fichier .zip après extraction
+            rm /home/${{ secrets.AWS_USER }}/${{ env.DEPLOY_PACKAGE_NAME_FILE }}
+
+            # Vérifier et configurer NGINX
+            sudo tee /etc/nginx/sites-available/console-app <<EOL
+            server {
+                listen 80;
+                server_name console.enzogivernaud.com;
+
+                root /home/${{ secrets.AWS_USER }}/console-app;
+                index index.html;
+
+                location / {
+                    try_files \$uri /index.html;
+                }
+            }
+            EOL
+
+            # Activer le site et redémarrer NGINX
+            sudo ln -sf /etc/nginx/sites-available/console-app /etc/nginx/sites-enabled/
+            sudo systemctl restart nginx
+
+      - name: Deployment completed Successfully
+        run: echo "Deployment completed successfully"
