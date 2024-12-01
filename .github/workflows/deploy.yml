@@ -24,8 +24,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    needs:
-      - lint
+    needs: lint
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -40,27 +39,31 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs:
-      - lint
-      - test
+    needs: test
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Set up Docker Compose
+        run: |
+          docker-compose version || sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose
+
       - name: Build Docker image
-        run: docker build -t console-app .
+        run: |
+          docker-compose build
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') # Exécute uniquement pour les tags
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: List Docker Images
-        run: docker images
-        
+      - name: Install Docker Compose
+        run: |
+          docker-compose version || sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose
+
       - name: Login to AWS
         run: |
           aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -69,4 +72,5 @@ jobs:
 
       - name: Deploy Docker container
         run: |
-          docker save console-app | ssh -i ${{ secrets.LIGHTSAIL_SSH_KEY }} ubuntu@${{ secrets.LIGHTSAIL_IP }} 'docker load && docker run -d -p 3000:80 console-app'
+          docker save console-app | ssh -i lightsail_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.LIGHTSAIL_IP }} \
+          'docker load && docker ps -q --filter "name=console-app" | grep -q . && docker stop console-app && docker rm console-app || true && docker run -d -p 80:80 console-app'
