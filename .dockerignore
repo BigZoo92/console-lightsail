@@ -1,0 +1,25 @@
+# Ignorer les dépendances locales
+node_modules
+.pnpm
+
+# Ignorer les fichiers temporaires et logs
+*.log
+.cache
+dist
+.vite
+*.tsbuildinfo
+
+# Ignorer les fichiers locaux
+.DS_Store
+.env*
+.vscode/
+.idea/
+
+# Fichiers inutiles ou locaux
+*.tmp
+*.bak
+*.old
+*.swp
+.git
+.gitignore
+coverage/
