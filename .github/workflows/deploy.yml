@@ -73,5 +73,5 @@ jobs:
       - name: Deploy Docker container
         run: |
           docker save console-app | ssh -i ${{ secrets.LIGHTSAIL_SSH_KEY }} -o StrictHostKeyChecking=no ubuntu@${{ secrets.LIGHTSAIL_IP }} \
-          'docker load && (docker ps -q --filter "name=console-app" && docker stop console-app && docker rm console-app || true) && docker run -d -p 80:80 --name console-app console-app'
+          'docker load && (docker ps -q --filter "name=console-app" && docker stop console-app && docker rm console-app || true) && docker run -d -p 80:80 --name console-app'
 
